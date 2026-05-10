@@ -10,7 +10,7 @@ Expected LAN addresses:
 
 - Printer queue: `Canon_MG5350`
 - Printer IP: `192.168.100.100`
-- Backend host: `192.168.100.99`
+- Backend host: `192.168.100.99` or `ubuntu26-remote` hostname
 
 This service has no authentication in v1. Bind it only to the LAN interface and
 do not expose it to the internet.
@@ -55,7 +55,7 @@ The current dependencies are intentionally small:
 ### Run the API
 
 ```bash
-uvicorn app.main:app --host 192.168.100.99 --port 8000
+uvicorn app.main:app --host ubuntu26-remote --port 8000
 ```
 
 Available endpoints:
