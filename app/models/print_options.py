@@ -47,17 +47,17 @@ class PrintOptions(BaseModel):
         if self.orientation is not None:
             mapper.map_orientation(self.orientation, applied, warnings)
         if self.paper_size is not None:
-            mapper.map_choice("paper_size", self.paper_size, ("media", "PageSize"), applied, unsupported, warnings)
+            mapper.map_choice("paper_size", self.paper_size, ("PageSize", "media"), applied, unsupported, warnings)
         if self.color_mode is not None:
             mapper.map_color_mode(self.color_mode, applied, unsupported, warnings)
         if self.quality is not None:
             mapper.map_quality(self.quality, applied, unsupported, warnings)
         if self.collate is not None:
-            mapper.map_bool("collate", self.collate, ("Collate", "collate"), applied, unsupported, warnings)
+            mapper.map_collate(self.collate, self.copies, applied, unsupported, warnings)
         if self.media_type is not None:
-            mapper.map_choice("media_type", self.media_type, ("MediaType", "media-type"), applied, unsupported, warnings)
+            mapper.map_media_type(self.media_type, applied, unsupported, warnings)
         if self.fit_to_page is not None:
-            mapper.map_bool("fit_to_page", self.fit_to_page, ("fit-to-page", "fitplot"), applied, unsupported, warnings)
+            mapper.map_fit_to_page(self.fit_to_page, applied, unsupported, warnings)
         if self.model_extra:
             for name in sorted(self.model_extra):
                 unsupported.append(name)
@@ -115,13 +115,24 @@ class _OptionMapper:
         applied: dict[str, str],
         warnings: list[str],
     ) -> None:
-        values = {
+        ppd_values = {
+            "portrait": "Portrait",
+            "landscape": "Landscape",
+            "reverse-landscape": "Seascape",
+            "reverse-portrait": "UpsideDown",
+        }
+        if self._supports("StpOrientation", ppd_values[value]):
+            applied["StpOrientation"] = ppd_values[value]
+            warnings.append("Mapped orientation through detected PPD StpOrientation option")
+            return
+
+        standard_values = {
             "portrait": "3",
             "landscape": "4",
             "reverse-landscape": "5",
             "reverse-portrait": "6",
         }
-        applied["orientation-requested"] = values[value]
+        applied["orientation-requested"] = standard_values[value]
         if self.capabilities and "orientation-requested" not in self.capabilities:
             warnings.append("Applied standard orientation-requested option without detected queue support")
 
@@ -172,7 +183,7 @@ class _OptionMapper:
             applied["print-quality"] = standard[value]
             return
 
-        for option_name in ("PrintQuality", "Quality", "Resolution"):
+        for option_name in ("Resolution", "StpQuality", "PrintQuality", "Quality"):
             if option_name in self.capabilities:
                 selected = self._choose_quality_value(option_name, value)
                 if selected:
@@ -187,6 +198,75 @@ class _OptionMapper:
 
         unsupported.append("quality")
         warnings.append("Dropped quality because no compatible CUPS option was detected")
+
+    def map_collate(
+        self,
+        value: bool,
+        copies: int,
+        applied: dict[str, str],
+        unsupported: list[str],
+        warnings: list[str],
+    ) -> None:
+        if copies == 1:
+            warnings.append("Ignored collate because copies=1")
+            return
+        self.map_bool("collate", value, ("Collate", "collate"), applied, unsupported, warnings)
+
+    def map_media_type(
+        self,
+        value: str,
+        applied: dict[str, str],
+        unsupported: list[str],
+        warnings: list[str],
+    ) -> None:
+        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "plain": ("Plain",),
+            "photo": ("PhotoPlusGloss2", "PhotoProSemiGloss", "PhotoProPlat", "PhotopaperOther"),
+            "glossy": ("GlossyPaper", "PhotoPlusGloss2"),
+            "matte": ("PhotopaperMatte",),
+        }
+        candidates = aliases.get(normalized, (value,))
+        for option_name in ("MediaType", "media-type"):
+            for candidate in candidates:
+                if self._supports(option_name, candidate):
+                    applied[option_name] = candidate
+                    if candidate != value:
+                        warnings.append(f"Mapped media_type={value} to detected {option_name}={candidate}")
+                    return
+
+        if not self.capabilities:
+            applied["MediaType"] = candidates[0]
+            warnings.append("Applied MediaType without detected queue capabilities")
+            return
+
+        unsupported.append("media_type")
+        warnings.append("Dropped media_type because value is not in detected queue capabilities")
+
+    def map_fit_to_page(
+        self,
+        value: bool,
+        applied: dict[str, str],
+        unsupported: list[str],
+        warnings: list[str],
+    ) -> None:
+        if not value:
+            warnings.append("Ignored fit_to_page=false")
+            return
+
+        for option_name, fit_value in (
+            ("fit-to-page", "true"),
+            ("fitplot", "true"),
+            ("StpiShrinkOutput", "Shrink"),
+            ("StpShrinkOutput", "Shrink"),
+        ):
+            if self._supports(option_name, fit_value):
+                applied[option_name] = fit_value
+                warnings.append(f"Mapped fit_to_page through detected {option_name} option")
+                return
+
+        unsupported.append("fit_to_page")
+        warnings.append("Dropped fit_to_page because no compatible CUPS/Gutenprint scaling option was detected")
 
     def map_choice(
         self,
@@ -252,9 +332,9 @@ class _OptionMapper:
     def _choose_quality_value(self, option_name: str, value: Quality) -> str | None:
         choices = self.capabilities.get(option_name, set())
         preferred = {
-            "draft": ("Draft", "Fast", "3", "300dpi"),
-            "normal": ("Normal", "Standard", "4", "600dpi"),
-            "high": ("High", "Best", "Photo", "5", "1200dpi"),
+            "draft": ("300dpi", "Draft", "Fast", "3"),
+            "normal": ("600dpi", "601x600dpi", "Standard", "Normal", "4"),
+            "high": ("1200dpi", "High", "Best", "Photo", "5"),
         }
         for candidate in preferred[value]:
             if candidate in choices:

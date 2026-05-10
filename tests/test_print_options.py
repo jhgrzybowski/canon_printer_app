@@ -1,5 +1,18 @@
 from app.models.print_options import PrintOptions
 from app.services.lpoptions_parser import parse_lpoptions
+from app.services.options_summary import build_options_summary
+
+
+GUTENPRINT_CAPABILITIES = {
+    "PageSize": {"Letter", "A4", "A5"},
+    "ColorModel": {"Gray", "Black", "RGB", "CMY", "CMYK", "KCMY"},
+    "MediaType": {"Plain", "PhotoPlusGloss2", "GlossyPaper", "PhotopaperMatte"},
+    "StpQuality": {"None", "Standard"},
+    "Resolution": {"601x600dpi", "600dpi", "300dpi", "612x600dpi"},
+    "Duplex": {"None", "DuplexNoTumble", "DuplexTumble"},
+    "StpiShrinkOutput": {"Shrink", "Crop", "Expand"},
+    "StpOrientation": {"Portrait", "Landscape", "UpsideDown", "Seascape"},
+}
 
 
 def test_parse_lpoptions() -> None:
@@ -41,6 +54,36 @@ def test_print_options_map_conservative_values() -> None:
     assert mapped.unsupported_options == []
 
 
+def test_known_successful_gutenprint_mapping() -> None:
+    options = PrintOptions(
+        copies=1,
+        pages="1",
+        paper_size="A4",
+        orientation="portrait",
+        color_mode="monochrome",
+        duplex="none",
+        quality="normal",
+        collate=True,
+        media_type="plain",
+        fit_to_page=True,
+    )
+
+    mapped = options.to_cups_options(GUTENPRINT_CAPABILITIES)
+
+    assert mapped.applied_options == {
+        "copies": "1",
+        "Duplex": "None",
+        "StpOrientation": "Portrait",
+        "PageSize": "A4",
+        "ColorModel": "Gray",
+        "Resolution": "600dpi",
+        "MediaType": "Plain",
+        "StpiShrinkOutput": "Shrink",
+    }
+    assert mapped.unsupported_options == []
+    assert "Ignored collate because copies=1" in mapped.warnings
+
+
 def test_print_options_drop_unsupported_values() -> None:
     mapped = PrintOptions(paper_size="Letter", color_mode="color").to_cups_options(
         {"PageSize": {"A4"}, "ColorModel": {"Gray"}}
@@ -49,3 +92,65 @@ def test_print_options_drop_unsupported_values() -> None:
     assert "paper_size" in mapped.unsupported_options
     assert "color_mode" in mapped.unsupported_options
     assert mapped.applied_options == {"copies": "1"}
+
+
+def test_collate_warning_for_multiple_copies_when_unsupported() -> None:
+    mapped = PrintOptions(copies=2, collate=True).to_cups_options(GUTENPRINT_CAPABILITIES)
+
+    assert "collate" in mapped.unsupported_options
+    assert "Dropped collate because no compatible CUPS option was detected" in mapped.warnings
+
+
+def test_color_mapping_color_and_monochrome() -> None:
+    mono = PrintOptions(color_mode="monochrome").to_cups_options(GUTENPRINT_CAPABILITIES)
+    color = PrintOptions(color_mode="color").to_cups_options(GUTENPRINT_CAPABILITIES)
+
+    assert mono.applied_options["ColorModel"] == "Gray"
+    assert color.applied_options["ColorModel"] == "RGB"
+
+
+def test_duplex_mapping_all_modes() -> None:
+    assert PrintOptions(duplex="none").to_cups_options(GUTENPRINT_CAPABILITIES).applied_options["Duplex"] == "None"
+    assert PrintOptions(duplex="long-edge").to_cups_options(GUTENPRINT_CAPABILITIES).applied_options["Duplex"] == "DuplexNoTumble"
+    assert PrintOptions(duplex="short-edge").to_cups_options(GUTENPRINT_CAPABILITIES).applied_options["Duplex"] == "DuplexTumble"
+
+
+def test_quality_maps_to_detected_resolution() -> None:
+    assert PrintOptions(quality="draft").to_cups_options(GUTENPRINT_CAPABILITIES).applied_options["Resolution"] == "300dpi"
+    assert PrintOptions(quality="normal").to_cups_options(GUTENPRINT_CAPABILITIES).applied_options["Resolution"] == "600dpi"
+    assert "quality" in PrintOptions(quality="high").to_cups_options(GUTENPRINT_CAPABILITIES).unsupported_options
+
+
+def test_media_type_aliases_and_drop_behavior() -> None:
+    plain = PrintOptions(media_type="plain").to_cups_options(GUTENPRINT_CAPABILITIES)
+    glossy = PrintOptions(media_type="glossy").to_cups_options(GUTENPRINT_CAPABILITIES)
+    unsupported = PrintOptions(media_type="canvas").to_cups_options(GUTENPRINT_CAPABILITIES)
+
+    assert plain.applied_options["MediaType"] == "Plain"
+    assert glossy.applied_options["MediaType"] == "GlossyPaper"
+    assert "media_type" in unsupported.unsupported_options
+
+
+def test_landscape_orientation_prefers_detected_gutenprint_option() -> None:
+    mapped = PrintOptions(orientation="landscape").to_cups_options(GUTENPRINT_CAPABILITIES)
+
+    assert mapped.applied_options["StpOrientation"] == "Landscape"
+
+
+def test_standard_orientation_fallback() -> None:
+    mapped = PrintOptions(orientation="landscape").to_cups_options({"PageSize": {"A4"}})
+
+    assert mapped.applied_options["orientation-requested"] == "4"
+
+
+def test_options_summary_frontend_shape() -> None:
+    summary = build_options_summary("Canon_MG5350", GUTENPRINT_CAPABILITIES)
+
+    assert summary["queue"] == "Canon_MG5350"
+    assert summary["paper_sizes"]["raw_option"] == "PageSize"
+    assert summary["duplex_modes"]["mapping"]["long-edge"] == "DuplexNoTumble"
+    assert summary["color_modes"]["mapping"]["monochrome"] == "Gray"
+    assert summary["quality"]["raw_option"] == "Resolution"
+    assert summary["media_types"]["mapping"]["plain"] == "Plain"
+    assert summary["fit_to_page"]["raw_option"] == "StpiShrinkOutput"
+    assert summary["collate"]["supported"] is False

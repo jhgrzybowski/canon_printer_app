@@ -124,6 +124,45 @@ At minimum, the backend attempts to map `copies`, `duplex`, `orientation`,
 `paper_size`, `color_mode`, and `quality`. Color, quality, and media mappings
 may vary by driver/PPD, so review response warnings before relying on them.
 
+### Verified MG5350 setup
+
+The currently verified real-printer setup is:
+
+- Queue: `Canon_MG5350`
+- Device URI: `lpd://192.168.100.100/PASSTHRU`
+- Driver/model: `gutenprint.5.3://bjc-PIXMA-MG5350/expert`
+
+The first successful API print used one page, monochrome, simplex, A4, normal
+quality, with this effective CUPS option set:
+
+```json
+{
+  "copies": "1",
+  "Duplex": "None",
+  "orientation-requested": "3",
+  "PageSize": "A4",
+  "ColorModel": "Gray",
+  "Resolution": "600dpi"
+}
+```
+
+`GET /options` reports the detected CUPS/Gutenprint capabilities in a
+frontend-friendly shape. Use `GET /options?debug=true` to include raw option
+names and values from `lpoptions`.
+
+Known option mapping notes:
+
+- `collate` is ignored without a noisy unsupported warning when `copies=1`.
+- `collate` is reported unsupported for multiple copies unless CUPS exposes a
+  collate option.
+- `media_type` maps safe aliases such as `plain`, `photo`, `glossy`, and
+  `matte` only when corresponding Gutenprint media values are detected.
+- `fit_to_page` maps only when a detected CUPS/Gutenprint scaling option exists;
+  it is otherwise reported unsupported rather than faked.
+- `orientation` prefers detected Gutenprint `StpOrientation`; otherwise it falls
+  back to standard `orientation-requested` values. Landscape should still be
+  verified with a real test page before relying on it.
+
 First real print should be simplex, monochrome, and one page:
 
 ```bash
@@ -149,6 +188,27 @@ Inspect jobs with:
 lpstat -o
 lpstat -p Canon_MG5350 -l
 cancel <job_id>
+```
+
+Manual integration checks:
+
+```bash
+lpstat -v Canon_MG5350
+lpoptions -p Canon_MG5350 -l
+lpstat -W all -o Canon_MG5350
+sudo journalctl -u cups --no-pager -n 100
+```
+
+Dry-run API smoke test:
+
+```bash
+PRINTER_BACKEND=http://ubuntu26-remote.local:8000 scripts/smoke_print_api.sh --dry-run
+```
+
+Real one-page smoke print:
+
+```bash
+PRINTER_BACKEND=http://ubuntu26-remote.local:8000 scripts/smoke_print_api.sh --print
 ```
 
 ### Run diagnostics

@@ -235,4 +235,5 @@ def test_options_endpoint_returns_detected_capabilities(client: TestClient) -> N
 
     assert response.status_code == 200
     assert response.json()["queue"] == "Canon_MG5350"
-    assert response.json()["options"]["PageSize"] == ["A4"]
+    assert response.json()["paper_sizes"]["choices"] == ["A4"]
+    assert response.json()["duplex_modes"]["mapping"]["none"] == "None"

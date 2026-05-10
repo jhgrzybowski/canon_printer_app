@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from app.models.print_options import PrintRequest
 from app.services.cups_client import CupsClient, CupsClientError
 from app.services.file_storage import StoredFile, StorageError, TempFileStorage
+from app.services.options_summary import build_options_summary
 from app.services.preview import PreviewError, PreviewService
 from app.services.print_service import PrintRequestError, submit_print_job
 from app.services.status_translator import translate_error_status, translate_queue_status
@@ -63,19 +64,16 @@ def list_jobs(client: CupsClient = Depends(get_cups_client)) -> dict[str, object
 
 
 @app.get("/options")
-def get_options(client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+def get_options(
+    debug: bool = False,
+    client: CupsClient = Depends(get_cups_client),
+) -> dict[str, object]:
     try:
         capabilities = client.get_option_capabilities()
     except CupsClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    return {
-        "queue": client.queue_name,
-        "options": {
-            name: sorted(values)
-            for name, values in sorted(capabilities.items())
-        },
-    }
+    return build_options_summary(client.queue_name, capabilities, include_debug=debug)
 
 
 @app.get("/jobs/{job_id}")
