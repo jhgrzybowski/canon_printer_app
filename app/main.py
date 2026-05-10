@@ -1,9 +1,11 @@
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from app.models.print_options import PrintRequest
 from app.services.cups_client import CupsClient, CupsClientError
 from app.services.file_storage import StoredFile, StorageError, TempFileStorage
 from app.services.preview import PreviewError, PreviewService
+from app.services.print_service import PrintRequestError, submit_print_job
 from app.services.status_translator import translate_error_status, translate_queue_status
 from app.settings import QUEUE_NAME
 
@@ -34,6 +36,52 @@ def status(client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
         payload = translate_error_status(QUEUE_NAME, str(exc))
         payload["cups"] = {"available": False, "error": str(exc)}
         return payload
+
+
+@app.post("/print")
+def print_file(
+    request: PrintRequest,
+    client: CupsClient = Depends(get_cups_client),
+    storage: TempFileStorage = Depends(get_file_storage),
+) -> dict[str, object]:
+    record = storage.get_record(request.file_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        return submit_print_job(client, storage, record, request.options)
+    except PrintRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@app.get("/jobs")
+def list_jobs(client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+    try:
+        return {"jobs": client.list_jobs()}
+    except CupsClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: int, client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+    try:
+        job = client.get_job(job_id)
+    except CupsClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.delete("/jobs/{job_id}")
+def cancel_job(job_id: int, client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+    try:
+        cancelled = client.cancel_job(job_id)
+    except CupsClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {"job_id": job_id, "cancelled": cancelled}
 
 
 @app.post("/files")

@@ -46,6 +46,7 @@ class TempFileStorage:
         self.files_dir = self.root / "files"
         self.metadata_dir = self.root / "metadata"
         self.previews_dir = self.root / "previews"
+        self.filtered_dir = self.root / "filtered"
 
     async def save_upload(self, upload: UploadFile) -> StoredFile:
         self._ensure_dirs()
@@ -129,10 +130,15 @@ class TempFileStorage:
     def metadata_path(self, file_id: str) -> Path:
         return self.metadata_dir / f"{file_id}.json"
 
+    def filtered_pdf_path(self, file_id: str) -> Path:
+        self.filtered_dir.mkdir(parents=True, exist_ok=True)
+        return self.filtered_dir / f"{file_id}.pdf"
+
     def _ensure_dirs(self) -> None:
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.previews_dir.mkdir(parents=True, exist_ok=True)
+        self.filtered_dir.mkdir(parents=True, exist_ok=True)
 
     def _new_file_id(self) -> str:
         while True:
