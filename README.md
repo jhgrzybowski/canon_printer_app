@@ -55,6 +55,7 @@ sudo apt install -y \
   python3-cups \
   poppler-utils \
   printer-driver-gutenprint
+```
 
 Package purpose:
 
