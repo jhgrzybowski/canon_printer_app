@@ -38,6 +38,21 @@ def test_health(client: TestClient) -> None:
     }
 
 
+def test_openapi_yaml_is_served(client: TestClient) -> None:
+    response = client.get("/openapi.yaml")
+
+    assert response.status_code == 200
+    assert "application/yaml" in response.headers["content-type"]
+    assert response.text.startswith("openapi: 3.1.0")
+
+
+def test_docs_uses_static_openapi_yaml(client: TestClient) -> None:
+    response = client.get("/docs")
+
+    assert response.status_code == 200
+    assert "/openapi.yaml" in response.text
+
+
 def test_status_uses_cups_client_dependency(client: TestClient) -> None:
     app.dependency_overrides[get_cups_client] = lambda: FakeCupsClient(
         {

@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.models.print_options import PrintRequest
 from app.services.cups_client import CupsClient, CupsClientError
@@ -11,7 +14,25 @@ from app.services.status_translator import translate_error_status, translate_que
 from app.settings import QUEUE_NAME
 
 
-app = FastAPI(title="Canon Printer Manager")
+OPENAPI_YAML_PATH = Path(__file__).resolve().parent.parent / "openapi.yaml"
+
+
+app = FastAPI(title="Canon Printer Manager", docs_url=None)
+
+
+@app.get("/openapi.yaml", include_in_schema=False)
+def openapi_yaml() -> FileResponse:
+    if not OPENAPI_YAML_PATH.exists():
+        raise HTTPException(status_code=404, detail="openapi.yaml not found")
+    return FileResponse(OPENAPI_YAML_PATH, media_type="application/yaml")
+
+
+@app.get("/docs", include_in_schema=False)
+def swagger_docs() -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url="/openapi.yaml",
+        title="Canon Printer Manager API Docs",
+    )
 
 
 @app.get("/health")
