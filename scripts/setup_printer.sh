@@ -3,8 +3,58 @@ set -euo pipefail
 
 QUEUE_NAME="${QUEUE_NAME:-Canon_MG5350}"
 PRINTER_IP="${PRINTER_IP:-192.168.100.100}"
-DEVICE_URI="${DEVICE_URI:-ipp://${PRINTER_IP}/ipp/print}"
-MODEL="${MODEL:-everywhere}"
+DEVICE_URI="${DEVICE_URI:-lpd://${PRINTER_IP}/PASSTHRU}"
+FORCE="${FORCE:-0}"
+RUN_TEST=0
+
+PREFERRED_MODEL="gutenprint.5.3://bjc-PIXMA-MG5350/expert"
+FALLBACK_MODEL_1="gutenprint.5.3://bjc-PIXMA-MG5300/expert"
+FALLBACK_MODEL_2="gutenprint.5.3://bjc-MG5300-series/expert"
+
+# Verified fallback transports if PASSTHRU ever stops working:
+#   lpd://192.168.100.100/lp
+#   lpd://192.168.100.100/print
+# Do not default to IPP/everywhere for this printer. Port 631 answers, but this
+# MG5350 does not provide the IPP Everywhere attributes CUPS needs.
+# Do not use socket://192.168.100.100:9100 unless a probe confirms port 9100 is open.
+
+usage() {
+  cat <<EOF
+Usage: $0 [--force] [--test]
+
+Environment overrides:
+  QUEUE_NAME   default: Canon_MG5350
+  PRINTER_IP   default: 192.168.100.100
+  DEVICE_URI   default: lpd://192.168.100.100/PASSTHRU
+  MODEL        default: auto-detected Gutenprint MG5350/MG5300 model
+  FORCE=1      reconfigure an existing mismatched queue
+
+Options:
+  --force      reconfigure an existing mismatched queue
+  --test       submit a tiny text test job after setup
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      FORCE=1
+      ;;
+    --test)
+      RUN_TEST=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 require_command() {
   local name="$1"
@@ -22,59 +72,148 @@ current_device_uri() {
   lpstat -v "$QUEUE_NAME" 2>/dev/null | sed -n "s/^device for ${QUEUE_NAME}: //p"
 }
 
-confirm() {
-  local prompt="$1"
-  local answer
-  read -r -p "${prompt} [y/N] " answer
-  case "$answer" in
-    y|Y|yes|YES) return 0 ;;
-    *) return 1 ;;
-  esac
+lpoptions_output() {
+  lpoptions -p "$QUEUE_NAME" -l 2>/dev/null || true
+}
+
+detect_model() {
+  if [[ -n "${MODEL:-}" ]]; then
+    echo "$MODEL"
+    return 0
+  fi
+
+  local models
+  models="$(lpinfo -m)"
+  for candidate in "$PREFERRED_MODEL" "$FALLBACK_MODEL_1" "$FALLBACK_MODEL_2"; do
+    if grep -Fq "$candidate" <<<"$models"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  cat >&2 <<EOF
+No supported Gutenprint MG5350/MG5300 model was found.
+
+Install Gutenprint, then rerun this script:
+  sudo apt install -y printer-driver-gutenprint
+
+Expected one of:
+  $PREFERRED_MODEL
+  $FALLBACK_MODEL_1
+  $FALLBACK_MODEL_2
+EOF
+  exit 1
+}
+
+current_model_matches() {
+  local options
+  options="$(lpoptions_output)"
+
+  # The exact driver URI is not exposed by lpstat on all CUPS versions and
+  # /etc/cups/ppd may be root-readable only. These Gutenprint-specific options
+  # are a practical non-root signal that the verified driver family is active.
+  grep -q '^ColorModel/' <<<"$options" &&
+    grep -q '^StpQuality/' <<<"$options" &&
+    grep -q '^Duplex/' <<<"$options"
 }
 
 print_status() {
   echo
-  echo "CUPS status:"
-  lpstat -p "$QUEUE_NAME" || true
+  echo "== CUPS queue status =="
+  lpstat -p "$QUEUE_NAME" -l || true
+  echo
+  echo "== Device URI =="
   lpstat -v "$QUEUE_NAME" || true
-  lpoptions -p "$QUEUE_NAME" -l || true
+  echo
+  echo "== First 80 queue options =="
+  lpoptions -p "$QUEUE_NAME" -l 2>&1 | head -80 || true
+}
+
+submit_test_print() {
+  local test_file="/tmp/canon-test.txt"
+  cat > "$test_file" <<EOF
+Canon MG5350 CUPS/Gutenprint test
+Queue: $QUEUE_NAME
+Transport: LPD PASSTHRU
+EOF
+  lp -d "$QUEUE_NAME" "$test_file"
 }
 
 require_command lpadmin
 require_command lpstat
 require_command lpoptions
+require_command lpinfo
 require_command cupsaccept
 require_command cupsenable
+require_command lp
+
+MODEL="$(detect_model)"
 
 echo "Queue name: $QUEUE_NAME"
 echo "Printer IP: $PRINTER_IP"
 echo "Device URI: $DEVICE_URI"
-echo "Model for new queue: $MODEL"
+echo "Model: $MODEL"
+echo "Force: $FORCE"
+echo "Test print: $RUN_TEST"
 
 if queue_exists; then
   existing_uri="$(current_device_uri)"
-  if [[ "$existing_uri" == "$DEVICE_URI" ]]; then
-    echo "Queue already exists with expected device URI. No changes needed."
+  if [[ "$existing_uri" == "$DEVICE_URI" ]] && current_model_matches; then
+    echo "Queue already exists with expected LPD URI and Gutenprint options. No changes needed."
+    test_submitted="no"
+    if [[ "$RUN_TEST" == "1" ]]; then
+      submit_test_print
+      test_submitted="yes"
+    fi
     print_status
+    echo
+    echo "Summary:"
+    echo "  Queue: $QUEUE_NAME"
+    echo "  Device URI: $DEVICE_URI"
+    echo "  Model: existing Gutenprint MG5350/MG5300-compatible queue"
+    echo "  Test job submitted: $test_submitted"
     exit 0
   fi
 
-  echo "Queue already exists with a different device URI."
+  echo "Queue already exists but does not match the verified setup."
   echo "Existing URI: ${existing_uri:-unknown}"
   echo "Expected URI: $DEVICE_URI"
-  if ! confirm "Update this queue to use the expected URI?"; then
-    echo "No changes made."
-    print_status
-    exit 0
+  if current_model_matches; then
+    echo "Existing model signal: Gutenprint-compatible options detected"
+  else
+    echo "Existing model signal: expected Gutenprint options not detected"
   fi
 
-  lpadmin -p "$QUEUE_NAME" -E -v "$DEVICE_URI"
-else
-  lpadmin -p "$QUEUE_NAME" -E -v "$DEVICE_URI" -m "$MODEL"
+  if [[ "$FORCE" != "1" ]]; then
+    cat >&2 <<EOF
+No changes made.
+
+Rerun with --force or FORCE=1 to reconfigure the queue:
+  sudo $0 --force
+EOF
+    print_status
+    exit 2
+  fi
+
+  echo "Force enabled. Recreating queue $QUEUE_NAME."
+  lpadmin -x "$QUEUE_NAME"
 fi
 
-cupsaccept "$QUEUE_NAME"
+lpadmin -p "$QUEUE_NAME" -E -v "$DEVICE_URI" -m "$MODEL"
 cupsenable "$QUEUE_NAME"
+cupsaccept "$QUEUE_NAME"
+
+test_submitted="no"
+if [[ "$RUN_TEST" == "1" ]]; then
+  submit_test_print
+  test_submitted="yes"
+fi
 
 echo "Queue configured."
 print_status
+echo
+echo "Summary:"
+echo "  Queue: $QUEUE_NAME"
+echo "  Device URI: $DEVICE_URI"
+echo "  Model: $MODEL"
+echo "  Test job submitted: $test_submitted"

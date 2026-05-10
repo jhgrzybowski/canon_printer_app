@@ -62,6 +62,22 @@ def list_jobs(client: CupsClient = Depends(get_cups_client)) -> dict[str, object
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/options")
+def get_options(client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+    try:
+        capabilities = client.get_option_capabilities()
+    except CupsClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {
+        "queue": client.queue_name,
+        "options": {
+            name: sorted(values)
+            for name, values in sorted(capabilities.items())
+        },
+    }
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: int, client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
     try:

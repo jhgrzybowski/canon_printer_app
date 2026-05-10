@@ -228,3 +228,11 @@ def test_job_endpoints_use_cups_client(client: TestClient) -> None:
     assert cancel_response.json() == {"job_id": 123, "cancelled": True}
     assert missing_cancel_response.status_code == 200
     assert missing_cancel_response.json() == {"job_id": 999, "cancelled": False}
+
+
+def test_options_endpoint_returns_detected_capabilities(client: TestClient) -> None:
+    response = client.get("/options")
+
+    assert response.status_code == 200
+    assert response.json()["queue"] == "Canon_MG5350"
+    assert response.json()["options"]["PageSize"] == ["A4"]

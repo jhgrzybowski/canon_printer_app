@@ -2,7 +2,7 @@
 
 Lightweight Python/FastAPI backend foundation for managing a Canon PIXMA MG5350
 printer on a LAN. Current endpoints cover health, CUPS queue status, upload,
-and preview. Printing endpoints are not implemented yet.
+preview, conservative print submission, and CUPS job lifecycle operations.
 
 ## Setup and diagnostics
 
@@ -17,11 +17,11 @@ do not expose it to the internet.
 
 ### System prerequisites
 
-On Ubuntu, install CUPS and the system Python bindings for CUPS:
+On Ubuntu, install CUPS, the system Python bindings for CUPS, and Gutenprint:
 
 ```bash
 sudo apt update
-sudo apt install -y cups cups-client python3-cups poppler-utils
+sudo apt install -y cups cups-client python3-cups poppler-utils printer-driver-gutenprint
 ```
 
 Do not install `pycups` from pip for this project. It requires native
@@ -31,6 +31,10 @@ to talk to the system CUPS daemon.
 `poppler-utils` is required by PDF preview generation. Preview rendering is an
 approximation for convenience and is not guaranteed to match final CUPS or
 printer-driver output exactly.
+
+The Canon PIXMA MG5350 does not work as an IPP Everywhere / driverless printer
+in this setup. Port `631` is reachable, but the printer does not provide the
+IPP attributes/document formats CUPS needs for `MODEL=everywhere`.
 
 ### Python environment
 
@@ -62,6 +66,7 @@ Available endpoints:
 - `GET /files/{file_id}/preview` returns preview page metadata and URLs.
 - `GET /files/{file_id}/preview/{page}` returns a preview PNG.
 - `POST /print` submits an uploaded file to CUPS after safety checks.
+- `GET /options` returns detected CUPS option capabilities for the queue.
 - `GET /jobs` lists CUPS jobs.
 - `GET /jobs/{job_id}` returns one CUPS job.
 - `DELETE /jobs/{job_id}` cancels a CUPS job where possible.
@@ -159,12 +164,22 @@ python3 scripts/probe.py
 
 ### Configure the printer queue
 
-The setup script is idempotent and defaults to:
+The verified working setup is:
 
 - `QUEUE_NAME=Canon_MG5350`
 - `PRINTER_IP=192.168.100.100`
-- `DEVICE_URI=ipp://192.168.100.100/ipp/print`
-- `MODEL=everywhere` for new queue creation
+- `DEVICE_URI=lpd://192.168.100.100/PASSTHRU`
+- `MODEL=gutenprint.5.3://bjc-PIXMA-MG5350/expert`
+
+The setup script auto-detects Gutenprint models in this order:
+
+1. `gutenprint.5.3://bjc-PIXMA-MG5350/expert`
+2. `gutenprint.5.3://bjc-PIXMA-MG5300/expert`
+3. `gutenprint.5.3://bjc-MG5300-series/expert`
+
+It does not default to `everywhere`, IPP, or socket/9100. Known LPD fallback
+URIs, if `PASSTHRU` ever stops working, are `lpd://192.168.100.100/lp` and
+`lpd://192.168.100.100/print`.
 
 Run it only when you are ready to change local CUPS configuration:
 
@@ -172,16 +187,58 @@ Run it only when you are ready to change local CUPS configuration:
 sudo scripts/setup_printer.sh
 ```
 
+If an existing queue does not match the verified URI/model signal, the script
+does not overwrite it unless `--force` or `FORCE=1` is used:
+
+```bash
+sudo scripts/setup_printer.sh --force
+```
+
+To submit a tiny text test job after setup:
+
+```bash
+sudo scripts/setup_printer.sh --test
+```
+
 Override defaults with environment variables when needed:
 
 ```bash
 sudo QUEUE_NAME=Canon_MG5350 PRINTER_IP=192.168.100.100 \
-  DEVICE_URI=ipp://192.168.100.100/ipp/print scripts/setup_printer.sh
+  DEVICE_URI=lpd://192.168.100.100/PASSTHRU \
+  MODEL=gutenprint.5.3://bjc-PIXMA-MG5350/expert \
+  scripts/setup_printer.sh
 ```
 
-If the queue already exists with the expected URI, the script makes no changes.
-If it exists with another URI, it prompts before updating only the URI. It does
-not delete queues, purge jobs, reset CUPS, or change an existing queue driver.
+The script prints final diagnostics with queue state, device URI, and the first
+80 `lpoptions` lines.
+
+### LPD diagnostics
+
+Run the non-destructive LPD debug script from the server:
+
+```bash
+scripts/debug_printer_lpd.sh
+```
+
+It checks the current user/groups, CUPS service state, required commands,
+Gutenprint model discovery, printer reachability, TCP ports `80`, `515`, `631`,
+and `9100`, queue status, queue options, and recent CUPS logs.
+
+It does not print unless explicitly requested:
+
+```bash
+scripts/debug_printer_lpd.sh --test-print
+```
+
+Useful troubleshooting commands:
+
+```bash
+lpstat -p Canon_MG5350 -l
+lpstat -v Canon_MG5350
+lpstat -W all -o Canon_MG5350
+lpoptions -p Canon_MG5350 -l
+sudo journalctl -u cups --no-pager -n 100
+```
 
 ### Run tests
 
