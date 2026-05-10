@@ -1,0 +1,633 @@
+openapi: 3.1.0
+info:
+  title: Canon Printer Manager API
+  version: 0.1.0
+  description: >
+    REST API for managing uploads, previews, print submission, printer status,
+    printer options, and CUPS jobs through a local CUPS queue.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: http://ubuntu26-remote.local:8000
+    description: Example LAN server
+
+tags:
+  - name: Health
+  - name: Printer
+  - name: Files
+  - name: Print
+  - name: Jobs
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Backend health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Backend is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /status:
+    get:
+      tags: [Printer]
+      summary: Get normalized printer/CUPS queue status
+      operationId: getStatus
+      responses:
+        "200":
+          description: Current printer queue status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrinterStatus"
+
+  /options:
+    get:
+      tags: [Printer]
+      summary: Get detected printer capabilities
+      operationId: getOptions
+      parameters:
+        - name: debug
+          in: query
+          required: false
+          description: Include raw detected CUPS/PPD options when true.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Frontend-friendly detected printer options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrinterOptionsResponse"
+        "503":
+          description: CUPS unavailable or queue missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /files:
+    post:
+      tags: [Files]
+      summary: Upload a file for previewing or printing
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: File accepted and stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileUploadResponse"
+        "400":
+          description: Invalid or corrupt file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /files/{file_id}/preview:
+    get:
+      tags: [Files]
+      summary: Get preview metadata for an uploaded file
+      operationId: getFilePreview
+      parameters:
+        - $ref: "#/components/parameters/FileId"
+      responses:
+        "200":
+          description: Preview metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewResponse"
+        "404":
+          description: Unknown file ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /files/{file_id}/preview/{page}:
+    get:
+      tags: [Files]
+      summary: Get one preview page as PNG
+      operationId: getPreviewPage
+      parameters:
+        - $ref: "#/components/parameters/FileId"
+        - name: page
+          in: path
+          required: true
+          description: 1-based preview page number.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Preview image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid page number
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Unknown file ID or preview page not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /print:
+    post:
+      tags: [Print]
+      summary: Submit an uploaded file to CUPS
+      operationId: submitPrintJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrintRequest"
+      responses:
+        "200":
+          description: Print job submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrintResponse"
+        "400":
+          description: Invalid print request or invalid page range
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Unknown file ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Printer or queue state prevents printing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: CUPS unavailable or printer queue unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs:
+    get:
+      tags: [Jobs]
+      summary: List CUPS jobs for the configured queue
+      operationId: listJobs
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobsResponse"
+        "503":
+          description: CUPS unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs/{job_id}:
+    get:
+      tags: [Jobs]
+      summary: Get one CUPS job
+      operationId: getJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobInfo"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: CUPS unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags: [Jobs]
+      summary: Cancel a CUPS job where possible
+      operationId: cancelJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job cancelled or already not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelJobResponse"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: CUPS unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  parameters:
+    FileId:
+      name: file_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Internal uploaded file identifier.
+
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: CUPS job ID.
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          example: ok
+        service:
+          type: string
+          example: canon-printer-manager
+
+    CupsStatus:
+      type: object
+      required: [available]
+      properties:
+        available:
+          type: boolean
+        error:
+          type:
+            - string
+            - "null"
+
+    PrinterStatus:
+      type: object
+      required:
+        - queue_name
+        - exists
+        - state
+        - enabled
+        - reasons
+        - cups
+      properties:
+        queue_name:
+          type: string
+          example: Canon_MG5350
+        exists:
+          type: boolean
+        state:
+          type: string
+          examples: [idle, processing, stopped, missing, offline]
+        state_code:
+          type:
+            - integer
+            - "null"
+          description: Raw CUPS printer-state code when available.
+        accepting_jobs:
+          type:
+            - boolean
+            - "null"
+        enabled:
+          type: boolean
+        message:
+          type: string
+        device_uri:
+          type:
+            - string
+            - "null"
+          example: lpd://192.168.100.100/PASSTHRU
+        location:
+          type:
+            - string
+            - "null"
+        reasons:
+          type: array
+          items:
+            type: string
+        cups:
+          $ref: "#/components/schemas/CupsStatus"
+
+    OptionChoice:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        raw:
+          type:
+            - string
+            - "null"
+
+    PrinterOptionsResponse:
+      type: object
+      required:
+        - queue
+        - paper_sizes
+        - duplex_modes
+        - color_modes
+        - qualities
+        - media_types
+        - collate_supported
+        - fit_to_page_supported
+      properties:
+        queue:
+          type: string
+          example: Canon_MG5350
+        paper_sizes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OptionChoice"
+        duplex_modes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OptionChoice"
+        color_modes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OptionChoice"
+        qualities:
+          type: array
+          items:
+            $ref: "#/components/schemas/OptionChoice"
+        media_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/OptionChoice"
+        collate_supported:
+          type: boolean
+        fit_to_page_supported:
+          type: boolean
+        orientation:
+          type: object
+          additionalProperties: true
+        raw:
+          type: object
+          additionalProperties: true
+          description: Present only when debug=true.
+
+    FileUploadResponse:
+      type: object
+      required:
+        - file_id
+        - original_filename
+        - detected_mime
+        - size_bytes
+        - preview_available
+      properties:
+        file_id:
+          type: string
+          example: uploaded-file-id
+        original_filename:
+          type: string
+          example: test.pdf
+        detected_mime:
+          type: string
+          example: application/pdf
+        size_bytes:
+          type: integer
+          minimum: 0
+        page_count:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+        preview_available:
+          type: boolean
+
+    PreviewPage:
+      type: object
+      required: [page, url]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        url:
+          type: string
+          example: /files/uploaded-file-id/preview/1
+
+    PreviewResponse:
+      type: object
+      required: [file_id, pages]
+      properties:
+        file_id:
+          type: string
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreviewPage"
+
+    PrintOptions:
+      type: object
+      properties:
+        copies:
+          type: integer
+          minimum: 1
+          maximum: 99
+          default: 1
+        pages:
+          type:
+            - string
+            - "null"
+          description: Page range string, e.g. "1", "1,3-5,8".
+        paper_size:
+          type: string
+          default: A4
+          example: A4
+        orientation:
+          type: string
+          enum: [portrait, landscape]
+          default: portrait
+        color_mode:
+          type: string
+          enum: [color, monochrome]
+          default: color
+        duplex:
+          type: string
+          enum: [none, long-edge, short-edge]
+          default: none
+        quality:
+          type: string
+          enum: [draft, normal, high]
+          default: normal
+        collate:
+          type: boolean
+          default: true
+        media_type:
+          type: string
+          example: plain
+        fit_to_page:
+          type: boolean
+          default: true
+
+    PrintRequest:
+      type: object
+      required: [file_id, options]
+      properties:
+        file_id:
+          type: string
+        options:
+          $ref: "#/components/schemas/PrintOptions"
+
+    PrintResponse:
+      type: object
+      required:
+        - job_id
+        - queue
+        - submitted_filename
+        - applied_options
+        - unsupported_options
+        - warnings
+      properties:
+        job_id:
+          type: integer
+        queue:
+          type: string
+          example: Canon_MG5350
+        submitted_filename:
+          type: string
+        applied_options:
+          type: object
+          additionalProperties:
+            type: string
+        unsupported_options:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+
+    JobInfo:
+      type: object
+      required: [job_id]
+      properties:
+        job_id:
+          type: integer
+        queue:
+          type: string
+        title:
+          type: string
+        state:
+          type: string
+        state_code:
+          type: integer
+        reasons:
+          type: array
+          items:
+            type: string
+        user:
+          type: string
+        size_bytes:
+          type: integer
+        created_at:
+          type: string
+        raw:
+          type: object
+          additionalProperties: true
+
+    JobsResponse:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobInfo"
+
+    CancelJobResponse:
+      type: object
+      required: [job_id, cancelled]
+      properties:
+        job_id:
+          type: integer
+        cancelled:
+          type: boolean
+        already_completed:
+          type: boolean
+          default: false
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
