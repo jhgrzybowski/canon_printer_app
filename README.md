@@ -1,8 +1,8 @@
 # Canon Printer Manager
 
 Lightweight Python/FastAPI backend foundation for managing a Canon PIXMA MG5350
-printer on a LAN. The first milestone only includes project structure, CUPS
-diagnostics, and an idempotent printer setup helper.
+printer on a LAN. Current endpoints cover health, CUPS queue status, upload,
+and preview. Printing endpoints are not implemented yet.
 
 ## Setup and diagnostics
 
@@ -21,12 +21,16 @@ On Ubuntu, install CUPS and the system Python bindings for CUPS:
 
 ```bash
 sudo apt update
-sudo apt install -y cups cups-client python3-cups
+sudo apt install -y cups cups-client python3-cups poppler-utils
 ```
 
 Do not install `pycups` from pip for this project. It requires native
 compilation and duplicates the Ubuntu-packaged CUPS bindings this backend uses
 to talk to the system CUPS daemon.
+
+`poppler-utils` is required by PDF preview generation. Preview rendering is an
+approximation for convenience and is not guaranteed to match final CUPS or
+printer-driver output exactly.
 
 ### Python environment
 
@@ -54,6 +58,17 @@ Available endpoints:
 
 - `GET /health` returns service liveness.
 - `GET /status` returns normalized CUPS status for `Canon_MG5350`.
+- `POST /files` accepts a PDF, PNG, JPEG, or text upload.
+- `GET /files/{file_id}/preview` returns preview page metadata and URLs.
+- `GET /files/{file_id}/preview/{page}` returns a preview PNG.
+
+Upload responses include `file_id`, sanitized `original_filename`,
+`detected_mime`, `size_bytes`, `page_count` when known, and
+`preview_available`.
+
+Temporary uploads and previews are stored under `TMP_DIR`, which defaults to
+`/var/tmp/printer-backend`. Set `MAX_UPLOAD_MB` to change the upload size
+limit; the default is `50`.
 
 ### Run diagnostics
 
