@@ -85,9 +85,22 @@ The image uses a Debian base and installs `python3-cups` from apt. Do not add
 docker compose up -d --build
 ```
 
+By default, Compose binds the published API port to the documented LAN address:
+
+```text
+192.168.100.99:8000:8000
+```
+
+Set `BACKEND_HOST` before running Compose if your server uses a different LAN
+IP. For a local-only reviewer smoke test, use `127.0.0.1`.
+
+```bash
+BACKEND_HOST=127.0.0.1 docker compose up -d --build
+```
+
 The compose file:
 
-- exposes `8000:8000`,
+- exposes `${BACKEND_HOST:-192.168.100.99}:8000:8000`,
 - mounts the host CUPS socket,
 - stores uploads, filtered PDFs, and previews in the `printer-backend-tmp` named
   volume,
@@ -107,7 +120,7 @@ PREVIEW_DPI=110
 ```
 
 This service has no authentication in v1. Keep it reachable only on the trusted
-LAN. Do not publish it to the internet.
+LAN address. Do not bind it to `0.0.0.0` or publish it to the internet.
 
 ---
 
@@ -116,10 +129,11 @@ LAN. Do not publish it to the internet.
 From the Docker host:
 
 ```bash
-curl -i http://localhost:8000/health
-curl -s http://localhost:8000/status
-curl -s http://localhost:8000/options
-curl -s http://localhost:8000/jobs
+export PRINTER_BACKEND="http://${BACKEND_HOST:-192.168.100.99}:8000"
+curl -i "$PRINTER_BACKEND/health"
+curl -s "$PRINTER_BACKEND/status"
+curl -s "$PRINTER_BACKEND/options"
+curl -s "$PRINTER_BACKEND/jobs"
 ```
 
 Expected `/health` response:
@@ -131,7 +145,7 @@ Expected `/health` response:
 Dry-run smoke test:
 
 ```bash
-PRINTER_BACKEND=http://localhost:8000 scripts/smoke_print_api.sh --dry-run
+scripts/smoke_print_api.sh --dry-run
 ```
 
 That checks health, status, options, and upload without submitting a print job.

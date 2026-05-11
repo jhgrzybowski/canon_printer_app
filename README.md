@@ -137,14 +137,18 @@ For stable LAN deployment, run the API in Docker while keeping CUPS on the host:
 
 ```bash
 docker compose up -d --build
-curl -i http://localhost:8000/health
-curl -s http://localhost:8000/status
-curl -s http://localhost:8000/options
+export PRINTER_BACKEND="http://${BACKEND_HOST:-192.168.100.99}:8000"
+curl -i "$PRINTER_BACKEND/health"
+curl -s "$PRINTER_BACKEND/status"
+curl -s "$PRINTER_BACKEND/options"
 ```
 
 The default compose setup mounts the host CUPS socket at
-`/run/cups/cups.sock`, exposes `8000:8000`, and persists upload/preview files in
-a Docker volume at `/var/tmp/printer-backend` inside the container.
+`/run/cups/cups.sock`, exposes `${BACKEND_HOST:-192.168.100.99}:8000:8000`,
+and persists upload/preview files in a Docker volume at
+`/var/tmp/printer-backend` inside the container. Override `BACKEND_HOST` when
+testing on a different host IP, for example
+`BACKEND_HOST=127.0.0.1 docker compose up -d --build` for local-only review.
 
 See `DEPLOYMENT_DOCKER.md` for build, verification, CUPS socket, and Canon
 PIXMA MG5350 deployment notes.

@@ -6,7 +6,7 @@ services:
     container_name: local-printer-api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${BACKEND_HOST:-192.168.100.99}:8000:8000"
     environment:
       QUEUE_NAME: Canon_MG5350
       PRINTER_IP: 192.168.100.100

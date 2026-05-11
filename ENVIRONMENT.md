@@ -382,4 +382,11 @@ For Docker Compose, the verified default is to mount the host CUPS socket:
 /run/cups/cups.sock:/run/cups/cups.sock
 ```
 
+The Compose port mapping binds to the documented LAN host instead of all
+interfaces:
+
+```text
+${BACKEND_HOST:-192.168.100.99}:8000:8000
+```
+
 See `DEPLOYMENT_DOCKER.md` for the full container workflow.
