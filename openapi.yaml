@@ -268,17 +268,11 @@ paths:
         - $ref: "#/components/parameters/JobId"
       responses:
         "200":
-          description: Job cancelled or already not active
+          description: Job cancelled, or no active job was found to cancel
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CancelJobResponse"
-        "404":
-          description: Job not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: CUPS unavailable
           content:
@@ -374,18 +368,38 @@ components:
         cups:
           $ref: "#/components/schemas/CupsStatus"
 
-    OptionChoice:
+    OptionBlock:
       type: object
-      required: [value, label]
+      required: [api_name, raw_option, supported, choices]
       properties:
-        value:
+        api_name:
           type: string
-        label:
-          type: string
-        raw:
+        raw_option:
           type:
             - string
             - "null"
+        supported:
+          type: boolean
+        choices:
+          type: array
+          items:
+            type: string
+        mapping:
+          type: object
+          additionalProperties:
+            type: string
+        recommended_mapping:
+          type: object
+          additionalProperties:
+            type:
+              - string
+              - "null"
+        raw_options:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
 
     PrinterOptionsResponse:
       type: object
@@ -394,42 +408,32 @@ components:
         - paper_sizes
         - duplex_modes
         - color_modes
-        - qualities
+        - quality
         - media_types
-        - collate_supported
-        - fit_to_page_supported
+        - collate
+        - fit_to_page
+        - orientation
       properties:
         queue:
           type: string
           example: Canon_MG5350
         paper_sizes:
-          type: array
-          items:
-            $ref: "#/components/schemas/OptionChoice"
+          $ref: "#/components/schemas/OptionBlock"
         duplex_modes:
-          type: array
-          items:
-            $ref: "#/components/schemas/OptionChoice"
+          $ref: "#/components/schemas/OptionBlock"
         color_modes:
-          type: array
-          items:
-            $ref: "#/components/schemas/OptionChoice"
-        qualities:
-          type: array
-          items:
-            $ref: "#/components/schemas/OptionChoice"
+          $ref: "#/components/schemas/OptionBlock"
+        quality:
+          $ref: "#/components/schemas/OptionBlock"
         media_types:
-          type: array
-          items:
-            $ref: "#/components/schemas/OptionChoice"
-        collate_supported:
-          type: boolean
-        fit_to_page_supported:
-          type: boolean
+          $ref: "#/components/schemas/OptionBlock"
+        collate:
+          $ref: "#/components/schemas/OptionBlock"
+        fit_to_page:
+          $ref: "#/components/schemas/OptionBlock"
         orientation:
-          type: object
-          additionalProperties: true
-        raw:
+          $ref: "#/components/schemas/OptionBlock"
+        debug:
           type: object
           additionalProperties: true
           description: Present only when debug=true.
@@ -465,7 +469,7 @@ components:
 
     PreviewPage:
       type: object
-      required: [page, url]
+      required: [page, url, size_bytes]
       properties:
         page:
           type: integer
@@ -473,13 +477,21 @@ components:
         url:
           type: string
           example: /files/uploaded-file-id/preview/1
+        size_bytes:
+          type: integer
+          minimum: 0
 
     PreviewResponse:
       type: object
-      required: [file_id, pages]
+      required: [file_id, page_count, pages]
       properties:
         file_id:
           type: string
+        page_count:
+          type:
+            - integer
+            - "null"
+          minimum: 1
         pages:
           type: array
           items:
@@ -504,11 +516,11 @@ components:
           example: A4
         orientation:
           type: string
-          enum: [portrait, landscape]
+          enum: [portrait, landscape, reverse-landscape, reverse-portrait]
           default: portrait
         color_mode:
           type: string
-          enum: [color, monochrome]
+          enum: [monochrome, color, auto]
           default: color
         duplex:
           type: string
@@ -575,25 +587,32 @@ components:
           type: integer
         queue:
           type: string
-        title:
+        name:
           type: string
         state:
           type: string
         state_code:
-          type: integer
+          type:
+            - integer
+            - "null"
         reasons:
           type: array
           items:
             type: string
         user:
           type: string
-        size_bytes:
-          type: integer
-        created_at:
+        printer_uri:
           type: string
-        raw:
-          type: object
-          additionalProperties: true
+        created_at:
+          oneOf:
+            - type: integer
+            - type: string
+            - type: "null"
+        completed_at:
+          oneOf:
+            - type: integer
+            - type: string
+            - type: "null"
 
     JobsResponse:
       type: object

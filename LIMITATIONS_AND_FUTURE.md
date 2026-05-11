@@ -37,7 +37,7 @@ Current recommendation:
 ```text
 Bind only to LAN.
 Do not expose to the internet.
-````
+```
 
 Future options:
 

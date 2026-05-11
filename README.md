@@ -55,6 +55,7 @@ sudo apt install -y \
   python3-cups \
   poppler-utils \
   printer-driver-gutenprint
+```
 
 Package purpose:
 
@@ -284,6 +285,6 @@ PRINTER_BACKEND=http://localhost:8000 scripts/smoke_print_api.sh --print
 For more detail, see:
 
 * `openapi.yaml` — full API reference.
-* `ENVIRONMENT_SETUP.md` — documented verified Canon MG5350 environment.
+* `ENVIRONMENT.md` — documented verified Canon MG5350 environment.
 * `TROUBLESHOOTING.md` — CUPS, driver, LPD, backend, and diagnostic notes.
 * `LIMITATIONS_AND_FUTURE.md` — known limitations and planned improvements.

@@ -15,7 +15,7 @@ lpstat -p Canon_MG5350 -l
 lpstat -v Canon_MG5350
 lpoptions -p Canon_MG5350 -l
 sudo journalctl -u cups --no-pager -n 100
-````
+```
 
 From a LAN client:
 
