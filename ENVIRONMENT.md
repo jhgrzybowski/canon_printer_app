@@ -281,7 +281,7 @@ Known working `/health` response:
 ```json
 {
   "status": "ok",
-  "service": "canon-printer-manager"
+  "service": "local-printer-api"
 }
 ```
 

@@ -1,1 +1,1 @@
-"""Canon printer manager backend package."""
+"""Local printer API backend package."""

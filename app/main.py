@@ -17,7 +17,7 @@ from app.settings import QUEUE_NAME
 OPENAPI_YAML_PATH = Path(__file__).resolve().parent.parent / "openapi.yaml"
 
 
-app = FastAPI(title="Canon Printer Manager", docs_url=None)
+app = FastAPI(title="Local Printer API", docs_url=None)
 
 
 @app.get("/openapi.yaml", include_in_schema=False)
@@ -31,13 +31,13 @@ def openapi_yaml() -> FileResponse:
 def swagger_docs() -> HTMLResponse:
     return get_swagger_ui_html(
         openapi_url="/openapi.yaml",
-        title="Canon Printer Manager API Docs",
+        title="Local Printer API Docs",
     )
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "canon-printer-manager"}
+    return {"status": "ok", "service": "local-printer-api"}
 
 
 def get_cups_client() -> CupsClient:
