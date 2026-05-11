@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Canon Printer Manager API
+  title: Local Printer API
   version: 0.1.0
   description: >
     REST API for managing uploads, previews, print submission, printer status,

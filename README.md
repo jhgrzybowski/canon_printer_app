@@ -1,6 +1,6 @@
-# Canon Printer Manager
+# Local Printer API
 
-Lightweight Python/FastAPI backend for managing a Canon printer through a local CUPS queue.
+Lightweight Python/FastAPI backend for managing any printer through a local CUPS queue.
 
 The app exposes a REST API for:
 
