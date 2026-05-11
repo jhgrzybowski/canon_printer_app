@@ -1,5 +1,5 @@
 from app.models.print_options import PrintOptions
-from app.services.lpoptions_parser import parse_lpoptions
+from app.services.lpoptions_parser import parse_lpoptions, parse_ppd_options
 from app.services.options_summary import build_options_summary
 
 
@@ -25,6 +25,23 @@ def test_parse_lpoptions() -> None:
     assert capabilities["PageSize"] == {"A4", "Letter"}
     assert capabilities["ColorModel"] == {"Gray", "RGB"}
     assert capabilities["Duplex"] == {"None", "DuplexNoTumble", "DuplexTumble"}
+
+
+def test_parse_ppd_options() -> None:
+    capabilities = parse_ppd_options(
+        "*OpenUI *PageSize/Media Size: PickOne\n"
+        "*DefaultPageSize: A4\n"
+        "*PageSize A4/A4: \"<</PageSize[595 842]>>setpagedevice\"\n"
+        "*PageSize Letter/Letter: \"<</PageSize[612 792]>>setpagedevice\"\n"
+        "*CloseUI: *PageSize\n"
+        "*OpenUI *ColorModel/Color Model: PickOne\n"
+        "*ColorModel Gray/Grayscale: \"\"\n"
+        "*ColorModel RGB/Color: \"\"\n"
+        "*CloseUI: *ColorModel\n"
+    )
+
+    assert capabilities["PageSize"] == {"A4", "Letter"}
+    assert capabilities["ColorModel"] == {"Gray", "RGB"}
 
 
 def test_print_options_map_conservative_values() -> None:

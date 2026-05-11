@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -11,8 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 
 
-QUEUE_NAME = "Canon_MG5350"
-PRINTER_IP = "192.168.100.100"
+QUEUE_NAME = os.getenv("QUEUE_NAME", "Canon_MG5350")
+PRINTER_IP = os.getenv("PRINTER_IP", "192.168.100.100")
 TCP_PORTS = (80, 515, 631, 9100)
 COMMAND_TIMEOUT_SECONDS = 8
 CONNECT_TIMEOUT_SECONDS = 3

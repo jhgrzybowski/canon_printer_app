@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: .
+    image: local-printer-api:latest
+    container_name: local-printer-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      QUEUE_NAME: Canon_MG5350
+      PRINTER_IP: 192.168.100.100
+      BACKEND_HOST: 192.168.100.99
+      BACKEND_PORT: "8000"
+      TMP_DIR: /var/tmp/printer-backend
+      MAX_UPLOAD_MB: "50"
+      PREVIEW_DPI: "110"
+    volumes:
+      - /run/cups/cups.sock:/run/cups/cups.sock
+      - printer-backend-tmp:/var/tmp/printer-backend
+
+volumes:
+  printer-backend-tmp:
