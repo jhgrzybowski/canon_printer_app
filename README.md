@@ -131,6 +131,30 @@ curl -i "$PRINTER_BACKEND/health"
 
 ---
 
+## Docker deployment
+
+For stable LAN deployment, run the API in Docker while keeping CUPS on the host:
+
+```bash
+docker compose up -d --build
+export PRINTER_BACKEND="http://${BACKEND_HOST:-192.168.100.99}:8000"
+curl -i "$PRINTER_BACKEND/health"
+curl -s "$PRINTER_BACKEND/status"
+curl -s "$PRINTER_BACKEND/options"
+```
+
+The default compose setup mounts the host CUPS socket at
+`/run/cups/cups.sock`, exposes `${BACKEND_HOST:-192.168.100.99}:8000:8000`,
+and persists upload/preview files in a Docker volume at
+`/var/tmp/printer-backend` inside the container. Override `BACKEND_HOST` when
+testing on a different host IP, for example
+`BACKEND_HOST=127.0.0.1 docker compose up -d --build` for local-only review.
+
+See `DEPLOYMENT_DOCKER.md` for build, verification, CUPS socket, and Canon
+PIXMA MG5350 deployment notes.
+
+---
+
 ## Basic API usage
 
 ### Health check
@@ -240,6 +264,17 @@ Check shell scripts:
 bash -n scripts/*.sh
 ```
 
+Useful Make targets are also available:
+
+```bash
+make test
+make pycompile
+make shellcheck
+make docker-build
+make compose-up
+make healthcheck
+```
+
 Recommended full validation:
 
 ```bash
@@ -286,5 +321,6 @@ For more detail, see:
 
 * `openapi.yaml` — full API reference.
 * `ENVIRONMENT.md` — documented verified Canon MG5350 environment.
+* `DEPLOYMENT_DOCKER.md` — Docker build, compose, socket, and deployment notes.
 * `TROUBLESHOOTING.md` — CUPS, driver, LPD, backend, and diagnostic notes.
 * `LIMITATIONS_AND_FUTURE.md` — known limitations and planned improvements.

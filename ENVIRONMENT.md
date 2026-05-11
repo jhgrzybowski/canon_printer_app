@@ -26,6 +26,9 @@ The backend should usually be run with:
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+The Docker deployment runs the same FastAPI app in a container and mounts the
+host CUPS socket. Host CUPS remains the queue/job source of truth.
+
 LAN clients can reach it through:
 
 ```text
@@ -356,3 +359,34 @@ codex --sandbox workspace-write --ask-for-approval on-request
 ```
 
 Avoid `danger-full-access` except for short, explicit system-setup tasks.
+
+---
+
+## Container settings
+
+The API reads these environment variables and preserves the documented defaults:
+
+```text
+QUEUE_NAME=Canon_MG5350
+PRINTER_IP=192.168.100.100
+BACKEND_HOST=192.168.100.99
+BACKEND_PORT=8000
+TMP_DIR=/var/tmp/printer-backend
+MAX_UPLOAD_MB=50
+PREVIEW_DPI=110
+```
+
+For Docker Compose, the verified default is to mount the host CUPS socket:
+
+```text
+/run/cups/cups.sock:/run/cups/cups.sock
+```
+
+The Compose port mapping binds to the documented LAN host instead of all
+interfaces:
+
+```text
+${BACKEND_HOST:-192.168.100.99}:8000:8000
+```
+
+See `DEPLOYMENT_DOCKER.md` for the full container workflow.

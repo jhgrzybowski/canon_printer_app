@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.settings import QUEUE_NAME
-from app.services.lpoptions_parser import parse_lpoptions
+from app.services.lpoptions_parser import parse_lpoptions, parse_ppd_options
 
 
 class CupsClientError(RuntimeError):
@@ -46,6 +46,12 @@ class CupsClient:
         }
 
     def get_option_capabilities(self) -> dict[str, set[str]]:
+        lpoptions_capabilities = self._get_lpoptions_capabilities()
+        if lpoptions_capabilities:
+            return lpoptions_capabilities
+        return self._get_ppd_capabilities()
+
+    def _get_lpoptions_capabilities(self) -> dict[str, set[str]]:
         try:
             completed = subprocess.run(
                 ["lpoptions", "-p", self.queue_name, "-l"],
@@ -60,6 +66,14 @@ class CupsClient:
         if completed.returncode != 0:
             return {}
         return parse_lpoptions(completed.stdout)
+
+    def _get_ppd_capabilities(self) -> dict[str, set[str]]:
+        try:
+            connection = self._connection()
+            ppd_path = Path(connection.getPPD(self.queue_name))
+            return parse_ppd_options(ppd_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            return {}
 
     def print_file(self, path: Path, title: str, options: dict[str, str]) -> int:
         try:

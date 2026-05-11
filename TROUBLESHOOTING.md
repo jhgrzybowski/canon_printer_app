@@ -26,6 +26,15 @@ curl -4 -s "$PRINTER_BACKEND/status" | jq
 curl -4 -s "$PRINTER_BACKEND/options" | jq
 ```
 
+For Docker deployments, also check the host CUPS socket:
+
+```bash
+test -S /run/cups/cups.sock && echo /run/cups/cups.sock
+test -S /var/run/cups/cups.sock && echo /var/run/cups/cups.sock
+docker compose exec api ls -l /run/cups/cups.sock
+docker compose exec api python -c "import cups; print('cups ok')"
+```
+
 ---
 
 ## Backend not reachable from another machine
