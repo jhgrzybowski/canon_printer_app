@@ -24,7 +24,7 @@ The backend should usually be run with:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
-````
+```
 
 LAN clients can reach it through:
 
