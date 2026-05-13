@@ -38,6 +38,33 @@ def test_health(client: TestClient) -> None:
     }
 
 
+def test_health_includes_cors_header_for_allowed_origin(client: TestClient) -> None:
+    origin = "http://192.168.100.99:5173"
+
+    response = client.get("/health", headers={"Origin": origin})
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_files_preflight_includes_cors_headers_for_allowed_origin(client: TestClient) -> None:
+    origin = "http://192.168.100.99:5173"
+
+    response = client.options(
+        "/files",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert "Content-Type" in response.headers["access-control-allow-headers"]
+
+
 def test_openapi_yaml_is_served(client: TestClient) -> None:
     response = client.get("/openapi.yaml")
 

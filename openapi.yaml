@@ -218,7 +218,20 @@ paths:
     get:
       tags: [Jobs]
       summary: List CUPS jobs for the configured queue
+      description: |
+        Lists jobs from CUPS. The default `active` scope returns only
+        not-completed jobs so frontend queue/task views do not show historical
+        completed jobs as cancelable work.
       operationId: listJobs
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          description: Which CUPS job set to return. Defaults to active.
+          schema:
+            type: string
+            enum: [active, completed, all]
+            default: active
       responses:
         "200":
           description: Job list
@@ -226,6 +239,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobsResponse"
+        "400":
+          description: Invalid job scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: CUPS unavailable
           content:
@@ -262,17 +281,52 @@ paths:
 
     delete:
       tags: [Jobs]
-      summary: Cancel a CUPS job where possible
+      summary: Cancel an active CUPS job where possible
+      description: |
+        Cancels active jobs only. Historical terminal jobs are not retried as
+        failed cancellations; they return a domain response explaining that the
+        job is already terminal and can only be forgotten/purged if supported.
       operationId: cancelJob
       parameters:
         - $ref: "#/components/parameters/JobId"
       responses:
         "200":
-          description: Job cancelled, or no active job was found to cancel
+          description: Job cancelled, missing, or already terminal
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CancelJobResponse"
+        "503":
+          description: CUPS unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs/{job_id}/forget:
+    post:
+      tags: [Jobs]
+      summary: Purge one historical CUPS job record where supported
+      description: |
+        Attempts to remove a terminal historical job record from CUPS using
+        pycups `cancelJob(jobid, purge_job=True)`. Active jobs must be cancelled
+        first. This endpoint does not perform bulk purges.
+      operationId: forgetJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Historical job record purged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForgetJobResponse"
+        "409":
+          description: CUPS did not allow the purge, or the job is still active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: CUPS unavailable
           content:
@@ -613,15 +667,44 @@ components:
             - type: integer
             - type: string
             - type: "null"
+        is_active:
+          type: boolean
+          description: True for not-completed CUPS job states.
+        is_terminal:
+          type: boolean
+          description: True for canceled, aborted, or completed jobs.
+        can_cancel:
+          type: boolean
+          description: True when the API will attempt CUPS cancellation.
+        can_forget:
+          type: boolean
+          description: True when the job is terminal history eligible for purge attempts.
+        action_hint:
+          type: string
+          description: Frontend-safe explanation of allowed job actions.
 
     JobsResponse:
       type: object
-      required: [jobs]
+      required: [scope, queue, jobs]
       properties:
+        scope:
+          type: string
+          enum: [active, completed, all]
+        queue:
+          type: string
         jobs:
           type: array
           items:
             $ref: "#/components/schemas/JobInfo"
+        counts:
+          type: object
+          properties:
+            active:
+              type: integer
+            completed:
+              type: integer
+            all:
+              type: integer
 
     CancelJobResponse:
       type: object
@@ -631,10 +714,27 @@ components:
           type: integer
         cancelled:
           type: boolean
-        already_completed:
+        already_terminal:
+          type: boolean
+          default: false
+        can_forget:
           type: boolean
           default: false
         message:
+          type: string
+
+    ForgetJobResponse:
+      type: object
+      required: [job_id, forgotten, method]
+      properties:
+        job_id:
+          type: integer
+        forgotten:
+          type: boolean
+        method:
+          type: string
+          enum: [pycups-purge-job]
+        reason:
           type: string
 
     ErrorResponse:

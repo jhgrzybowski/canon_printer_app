@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
 from app.main import app, get_cups_client, get_file_storage
-from app.services.cups_client import CupsClientError
+from app.services.cups_client import CupsClientError, normalize_job
 from app.services.file_storage import TempFileStorage
 
 
@@ -34,6 +34,11 @@ class FakeCupsClient:
     def __init__(self, queue: dict[str, Any] | None = None) -> None:
         self.queue = queue or ready_queue()
         self.submissions: list[dict[str, Any]] = []
+        self.jobs = {
+            123: normalize_job(123, {"job-name": "active.pdf", "job-state": 5}),
+            456: normalize_job(456, {"job-name": "done.pdf", "job-state": 9}),
+            789: normalize_job(789, {"job-name": "canceled.pdf", "job-state": 7}),
+        }
 
     def get_queue(self) -> dict[str, Any]:
         return self.queue
@@ -50,16 +55,66 @@ class FakeCupsClient:
         self.submissions.append({"path": path, "title": title, "options": options})
         return 123
 
-    def list_jobs(self) -> list[dict[str, Any]]:
-        return [{"job_id": 123, "state": "processing", "reasons": []}]
+    def list_jobs(self, scope: str = "active") -> list[dict[str, Any]]:
+        if scope == "active":
+            return [job for job in self.jobs.values() if job["is_active"]]
+        if scope == "completed":
+            return [job for job in self.jobs.values() if job["is_terminal"]]
+        return list(self.jobs.values())
+
+    def job_counts(self) -> dict[str, int]:
+        return {
+            "active": len(self.list_jobs("active")),
+            "completed": len(self.list_jobs("completed")),
+            "all": len(self.list_jobs("all")),
+        }
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
-        if job_id == 123:
-            return {"job_id": 123, "state": "processing", "reasons": []}
-        return None
+        return self.jobs.get(job_id)
 
-    def cancel_job(self, job_id: int) -> bool:
-        return job_id == 123
+    def cancel_job(self, job_id: int) -> dict[str, Any]:
+        job = self.get_job(job_id)
+        if job is None:
+            return {
+                "job_id": job_id,
+                "cancelled": False,
+                "already_terminal": False,
+                "can_forget": False,
+                "message": "Job was not found.",
+            }
+        if not job["can_cancel"]:
+            return {
+                "job_id": job_id,
+                "cancelled": False,
+                "already_terminal": job["is_terminal"],
+                "can_forget": job["can_forget"],
+                "message": "Job is already completed/canceled/aborted and cannot be cancelled.",
+            }
+        return {
+            "job_id": job_id,
+            "cancelled": True,
+            "already_terminal": False,
+            "can_forget": False,
+            "message": "Job cancellation was submitted.",
+        }
+
+    def forget_job(self, job_id: int) -> dict[str, Any]:
+        job = self.get_job(job_id)
+        if job is None:
+            return {
+                "job_id": job_id,
+                "forgotten": False,
+                "method": "pycups-purge-job",
+                "reason": "Job was not found.",
+            }
+        if job["can_cancel"]:
+            return {
+                "job_id": job_id,
+                "forgotten": False,
+                "method": "pycups-purge-job",
+                "reason": "Job is still active; cancel it before purging history.",
+            }
+        return {"job_id": job_id, "forgotten": True, "method": "pycups-purge-job"}
 
 
 class FailingCupsClient(FakeCupsClient):
@@ -214,20 +269,91 @@ def test_print_reports_queue_stopped(storage: TempFileStorage) -> None:
     assert response.status_code == 409
 
 
-def test_job_endpoints_use_cups_client(client: TestClient) -> None:
+def test_jobs_defaults_to_active_scope(client: TestClient) -> None:
     list_response = client.get("/jobs")
-    get_response = client.get("/jobs/123")
-    cancel_response = client.delete("/jobs/123")
-    missing_cancel_response = client.delete("/jobs/999")
 
     assert list_response.status_code == 200
-    assert list_response.json()["jobs"][0]["job_id"] == 123
+    body = list_response.json()
+    assert body["scope"] == "active"
+    assert body["queue"] == "Canon_MG5350"
+    assert [job["job_id"] for job in body["jobs"]] == [123]
+    assert body["counts"] == {"active": 1, "completed": 2, "all": 3}
+    assert body["jobs"][0]["can_cancel"] is True
+    assert body["jobs"][0]["is_active"] is True
+
+
+def test_jobs_all_scope_includes_history(client: TestClient) -> None:
+    response = client.get("/jobs?scope=all")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "all"
+    assert [job["job_id"] for job in body["jobs"]] == [123, 456, 789]
+    assert body["jobs"][1]["can_cancel"] is False
+    assert body["jobs"][1]["can_forget"] is True
+
+
+def test_jobs_rejects_invalid_scope(client: TestClient) -> None:
+    response = client.get("/jobs?scope=old")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid job scope"
+
+
+def test_get_job_returns_lifecycle_flags(client: TestClient) -> None:
+    get_response = client.get("/jobs/123")
+
     assert get_response.status_code == 200
     assert get_response.json()["state"] == "processing"
+    assert get_response.json()["can_cancel"] is True
+
+
+def test_cancel_active_job(client: TestClient) -> None:
+    cancel_response = client.delete("/jobs/123")
+
     assert cancel_response.status_code == 200
-    assert cancel_response.json() == {"job_id": 123, "cancelled": True}
+    assert cancel_response.json()["job_id"] == 123
+    assert cancel_response.json()["cancelled"] is True
+
+
+def test_cancel_terminal_job_returns_domain_response(client: TestClient) -> None:
+    response = client.delete("/jobs/456")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "job_id": 456,
+        "cancelled": False,
+        "already_terminal": True,
+        "can_forget": True,
+        "message": "Job is already completed/canceled/aborted and cannot be cancelled.",
+    }
+
+
+def test_cancel_missing_job_returns_domain_response(client: TestClient) -> None:
+    missing_cancel_response = client.delete("/jobs/999")
+
     assert missing_cancel_response.status_code == 200
-    assert missing_cancel_response.json() == {"job_id": 999, "cancelled": False}
+    assert missing_cancel_response.json()["job_id"] == 999
+    assert missing_cancel_response.json()["cancelled"] is False
+
+
+def test_forget_terminal_job(client: TestClient) -> None:
+    response = client.post("/jobs/456/forget")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "job_id": 456,
+        "forgotten": True,
+        "method": "pycups-purge-job",
+    }
+
+
+def test_forget_active_job_returns_conflict(client: TestClient) -> None:
+    response = client.post("/jobs/123/forget")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["forgotten"] is False
+    assert "still active" in response.json()["detail"]["reason"]
 
 
 def test_options_endpoint_returns_detected_capabilities(client: TestClient) -> None:

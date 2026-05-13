@@ -150,6 +150,14 @@ and persists upload/preview files in a Docker volume at
 testing on a different host IP, for example
 `BACKEND_HOST=127.0.0.1 docker compose up -d --build` for local-only review.
 
+Browser frontends must be listed in `CORS_ALLOWED_ORIGINS`. The default Docker
+configuration allows the Print Bar dev frontend at
+`http://192.168.100.99:5173`. Configure that frontend with:
+
+```env
+VITE_PRINTER_API_BASE_URL=http://192.168.100.99:8000
+```
+
 See `DEPLOYMENT_DOCKER.md` for build, verification, CUPS socket, and Canon
 PIXMA MG5350 deployment notes.
 
@@ -232,9 +240,23 @@ curl -s -X POST "$PRINTER_BACKEND/print" \
 
 ```bash
 curl -s "$PRINTER_BACKEND/jobs" | jq
+curl -s "$PRINTER_BACKEND/jobs?scope=completed" | jq
+curl -s "$PRINTER_BACKEND/jobs?scope=all" | jq
 curl -s "$PRINTER_BACKEND/jobs/2" | jq
 curl -s -X DELETE "$PRINTER_BACKEND/jobs/2" | jq
+curl -s -X POST "$PRINTER_BACKEND/jobs/2/forget" | jq
 ```
+
+`GET /jobs` defaults to active CUPS jobs only. Historical completed, canceled,
+or aborted jobs are available with `scope=completed` or `scope=all`, but they
+are returned with `can_cancel=false` so a frontend does not show them as
+cancelable queue work.
+
+`DELETE /jobs/{job_id}` cancels active jobs. Old terminal jobs cannot normally
+be canceled by CUPS; the API returns a clear lifecycle response instead of a raw
+CUPS failure. If this CUPS installation and permissions allow it,
+`POST /jobs/{job_id}/forget` attempts to purge one historical record using the
+pycups purge flag.
 
 ---
 

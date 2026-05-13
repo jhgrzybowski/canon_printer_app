@@ -117,6 +117,15 @@ BACKEND_PORT=8000
 TMP_DIR=/var/tmp/printer-backend
 MAX_UPLOAD_MB=50
 PREVIEW_DPI=110
+CORS_ALLOWED_ORIGINS=http://192.168.100.99:5173,http://ubuntu26-remote.local:5173,http://localhost:5173,http://127.0.0.1:5173
+```
+
+Browser clients are allowed only when their exact origin is listed in
+`CORS_ALLOWED_ORIGINS`; wildcard CORS is not enabled by default. For the Print
+Bar frontend on the same Ubuntu server, set:
+
+```env
+VITE_PRINTER_API_BASE_URL=http://192.168.100.99:8000
 ```
 
 This service has no authentication in v1. Keep it reachable only on the trusted
@@ -136,10 +145,24 @@ curl -s "$PRINTER_BACKEND/options"
 curl -s "$PRINTER_BACKEND/jobs"
 ```
 
+Verify CORS for the Print Bar frontend origin:
+
+```bash
+curl -i \
+  -H "Origin: http://192.168.100.99:5173" \
+  "$PRINTER_BACKEND/health"
+```
+
 Expected `/health` response:
 
 ```json
 {"status":"ok","service":"local-printer-api"}
+```
+
+The response headers should include:
+
+```text
+access-control-allow-origin: http://192.168.100.99:5173
 ```
 
 Dry-run smoke test:

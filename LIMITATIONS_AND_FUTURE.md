@@ -56,7 +56,10 @@ The backend intentionally delegates real print state to CUPS.
 Implication:
 
 * The backend does not maintain a persistent job database.
-* Completed historical jobs may disappear depending on CUPS configuration.
+* Completed historical jobs may remain visible or disappear depending on CUPS
+  configuration.
+* Historical completed/canceled/aborted jobs are not active queue work and are
+  not treated as cancelable tasks by the API.
 * Job status accuracy depends on CUPS and printer reporting.
 
 Future option:

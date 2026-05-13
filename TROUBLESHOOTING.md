@@ -331,8 +331,33 @@ Watch jobs:
 
 ```bash
 lpstat -o Canon_MG5350
+lpstat -W not-completed -o Canon_MG5350
+lpstat -W completed -o Canon_MG5350
 lpstat -W all -o Canon_MG5350
 ```
+
+`lpstat -o` and `lpstat -W not-completed -o` show active/not-completed jobs.
+Completed, canceled, or aborted jobs can remain in CUPS history and appear with
+`lpstat -W completed -o` or API calls such as `/jobs?scope=completed`. Those
+historical jobs are not active queue work and CUPS can reject normal
+cancellation with messages such as `already completed - can't cancel`.
+
+Cancel an active job:
+
+```bash
+cancel Canon_MG5350-2
+```
+
+Purge one historical job record, if the current CUPS permissions allow it:
+
+```bash
+cancel -x Canon_MG5350-2
+```
+
+CUPS history retention is controlled by CUPS configuration such as
+`PreserveJobHistory`, `PreserveJobFiles`, and `MaxJobs`. The API does not edit
+`cupsd.conf`; adjust those settings manually on the server only if that is the
+desired operations policy.
 
 ---
 

@@ -1,23 +1,31 @@
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.models.print_options import PrintRequest
-from app.services.cups_client import CupsClient, CupsClientError
+from app.services.cups_client import JOB_SCOPE_TO_CUPS, CupsClient, CupsClientError
 from app.services.file_storage import StoredFile, StorageError, TempFileStorage
 from app.services.options_summary import build_options_summary
 from app.services.preview import PreviewError, PreviewService
 from app.services.print_service import PrintRequestError, submit_print_job
 from app.services.status_translator import translate_error_status, translate_queue_status
-from app.settings import QUEUE_NAME
+from app.settings import CORS_ALLOWED_ORIGINS, QUEUE_NAME
 
 
 OPENAPI_YAML_PATH = Path(__file__).resolve().parent.parent / "openapi.yaml"
 
 
 app = FastAPI(title="Local Printer API", docs_url=None)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept"],
+)
 
 
 @app.get("/openapi.yaml", include_in_schema=False)
@@ -77,9 +85,19 @@ def print_file(
 
 
 @app.get("/jobs")
-def list_jobs(client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+def list_jobs(
+    scope: str = Query("active", description="Job scope: active, completed, or all"),
+    client: CupsClient = Depends(get_cups_client),
+) -> dict[str, object]:
+    if scope not in JOB_SCOPE_TO_CUPS:
+        raise HTTPException(status_code=400, detail="Invalid job scope")
     try:
-        return {"jobs": client.list_jobs()}
+        return {
+            "scope": scope,
+            "queue": client.queue_name,
+            "jobs": client.list_jobs(scope),
+            "counts": client.job_counts(),
+        }
     except CupsClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -112,11 +130,21 @@ def get_job(job_id: int, client: CupsClient = Depends(get_cups_client)) -> dict[
 @app.delete("/jobs/{job_id}")
 def cancel_job(job_id: int, client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
     try:
-        cancelled = client.cancel_job(job_id)
+        return client.cancel_job(job_id)
     except CupsClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    return {"job_id": job_id, "cancelled": cancelled}
+
+@app.post("/jobs/{job_id}/forget")
+def forget_job(job_id: int, client: CupsClient = Depends(get_cups_client)) -> dict[str, object]:
+    try:
+        result = client.forget_job(job_id)
+    except CupsClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if result.get("forgotten") is False:
+        raise HTTPException(status_code=409, detail=result)
+    return result
 
 
 @app.post("/files")
