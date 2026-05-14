@@ -374,7 +374,12 @@ BACKEND_PORT=8000
 TMP_DIR=/var/tmp/printer-backend
 MAX_UPLOAD_MB=50
 PREVIEW_DPI=110
+CORS_ALLOWED_ORIGINS=http://192.168.100.99:5173,http://ubuntu26-remote.local:5173,http://localhost:5173,http://127.0.0.1:5173
 ```
+
+`CORS_ALLOWED_ORIGINS` is a comma-separated list of browser frontend origins.
+The Print Bar frontend should use
+`VITE_PRINTER_API_BASE_URL=http://192.168.100.99:8000`.
 
 For Docker Compose, the verified default is to mount the host CUPS socket:
 

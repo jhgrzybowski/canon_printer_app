@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from typing import Any
+
+from app.services.cups_client import CupsClient, normalize_job
+
+
+class RecordingConnection:
+    def __init__(self, jobs: dict[int, dict[str, Any]]) -> None:
+        self.jobs = jobs
+        self.which_jobs: list[str] = []
+        self.cancelled: list[tuple[int, bool]] = []
+
+    def getJobs(
+        self,
+        which_jobs: str = "not-completed",
+        requested_attributes: list[str] | None = None,
+    ) -> dict[int, dict[str, Any]]:
+        self.which_jobs.append(which_jobs)
+        if which_jobs == "not-completed":
+            return {
+                job_id: attrs
+                for job_id, attrs in self.jobs.items()
+                if attrs.get("job-state") in {3, 4, 5, 6}
+            }
+        if which_jobs == "completed":
+            return {
+                job_id: attrs
+                for job_id, attrs in self.jobs.items()
+                if attrs.get("job-state") in {7, 8, 9}
+            }
+        return self.jobs
+
+    def getJobAttributes(self, job_id: int) -> dict[str, Any]:
+        return self.jobs[job_id]
+
+    def cancelJob(self, job_id: int, purge_job: bool = False) -> None:
+        self.cancelled.append((job_id, purge_job))
+
+
+class NotPossibleConnection(RecordingConnection):
+    def cancelJob(self, job_id: int, purge_job: bool = False) -> None:
+        raise RuntimeError("(1028, 'client-error-not-possible')")
+
+
+def test_list_jobs_maps_active_scope_to_not_completed() -> None:
+    connection = RecordingConnection(
+        {
+            1: {"job-name": "active.pdf", "job-state": 5},
+            2: {"job-name": "done.pdf", "job-state": 9},
+        }
+    )
+    client = CupsClient()
+    client._connection = lambda: connection  # type: ignore[method-assign]
+
+    jobs = client.list_jobs("active")
+
+    assert connection.which_jobs == ["not-completed"]
+    assert [job["job_id"] for job in jobs] == [1]
+
+
+def test_normalize_job_marks_active_and_terminal_states() -> None:
+    active = normalize_job(1, {"job-state": 6})
+    terminal = normalize_job(2, {"job-state": 9})
+    unknown = normalize_job(3, {})
+
+    assert active["state"] == "processing-stopped"
+    assert active["is_active"] is True
+    assert active["can_cancel"] is True
+    assert terminal["is_terminal"] is True
+    assert terminal["can_cancel"] is False
+    assert terminal["can_forget"] is True
+    assert unknown["state"] == "unknown"
+    assert unknown["can_cancel"] is False
+
+
+def test_cancel_terminal_job_does_not_call_cups_cancel() -> None:
+    connection = RecordingConnection({1: {"job-name": "done.pdf", "job-state": 9}})
+    client = CupsClient()
+    client._connection = lambda: connection  # type: ignore[method-assign]
+
+    response = client.cancel_job(1)
+
+    assert response["cancelled"] is False
+    assert response["already_terminal"] is True
+    assert response["can_forget"] is True
+    assert connection.cancelled == []
+
+
+def test_cancel_not_possible_is_translated_to_domain_response() -> None:
+    connection = NotPossibleConnection({1: {"job-name": "active.pdf", "job-state": 5}})
+    client = CupsClient()
+    client._connection = lambda: connection  # type: ignore[method-assign]
+
+    response = client.cancel_job(1)
+
+    assert response["job_id"] == 1
+    assert response["cancelled"] is False
+    assert response["message"] == "CUPS says this job cannot be cancelled."
+
+
+def test_forget_terminal_job_uses_pycups_purge_flag() -> None:
+    connection = RecordingConnection({1: {"job-name": "done.pdf", "job-state": 9}})
+    client = CupsClient()
+    client._connection = lambda: connection  # type: ignore[method-assign]
+
+    response = client.forget_job(1)
+
+    assert response == {"job_id": 1, "forgotten": True, "method": "pycups-purge-job"}
+    assert connection.cancelled == [(1, True)]
